@@ -1,0 +1,3 @@
+# Windows 배치/PowerShell 스크립트는 CRLF 로 유지 (LF 이면 cmd 에서 오동작할 수 있음)
+*.bat text eol=crlf
+*.ps1 text eol=crlf

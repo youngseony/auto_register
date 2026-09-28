@@ -3,7 +3,7 @@
 import csv
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import openpyxl
@@ -136,6 +136,8 @@ def fmt_ref(value):
     """안내 문구용 참고 값(일자 등)을 글자로. 엑셀 날짜 셀은 '2026. 09. 28' 모양으로."""
     if isinstance(value, datetime):
         return value.strftime("%Y. %m. %d")
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and 20000 < value < 80000:
+        return (datetime(1899, 12, 30) + timedelta(days=int(value))).strftime("%Y. %m. %d")  # 엑셀 날짜 숫자
     return txt(value)
 
 

@@ -11,7 +11,7 @@
 
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
@@ -34,23 +34,40 @@ FILE_LABEL = "교육과정 파일"
 
 # ---------------------------------------------------------- 엑셀 읽기 ----
 def normalize_date(value) -> str:
-    """엑셀 '일자' 값을 'YYYY-MM-DD' 문자열로 정규화"""
+    """엑셀 '일자' 값을 'YYYY-MM-DD' 문자열로 정규화.
+    날짜 셀, 엑셀 날짜 숫자(46329), 텍스트('2026. 11. 03', '2026-11-03', '2026년 11월 3일',
+    '2026. 11. 03 (화)', '20261103') 모두 읽는다. 읽을 수 없으면 ValueError."""
     if isinstance(value, datetime):
         return value.strftime("%Y-%m-%d")
-    s = str(value).strip().replace(" ", "")
-    parts = [p for p in re.split(r"[.\-/]", s) if p]
-    y, m, d = parts[0], parts[1], parts[2]
-    return f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and 20000 < value < 80000:
+        return (datetime(1899, 12, 30) + timedelta(days=int(value))).strftime("%Y-%m-%d")
+    m = re.search(r"(\d{4})\D*?(\d{1,2})\D*?(\d{1,2})", str(value))
+    if not m:
+        raise ValueError(f"일자를 읽을 수 없습니다: {value!r}")
+    return datetime(int(m[1]), int(m[2]), int(m[3])).strftime("%Y-%m-%d")
 
 
 def normalize_time(value) -> str:
-    """엑셀 '시작'/'종료' 값을 (시, 분) 튜플로 정규화"""
+    """엑셀 '시작'/'종료' 값을 (시, 분) 튜플로 정규화.
+    시간 셀, 엑셀 시간 숫자(0.5833), 텍스트('14:00', '14:00:00', '오후 2:00', '2:00 PM', '14시 30분', '1400') 모두 읽는다."""
     if hasattr(value, "hour") and hasattr(value, "minute"):
         # datetime.datetime 또는 datetime.time 모두 처리
         return value.hour, value.minute
+    if isinstance(value, float) and 0 <= value < 1:
+        minutes = round(value * 24 * 60)
+        return minutes // 60, minutes % 60
     s = str(value).strip()
-    h, m = s.split(":")[:2]
-    return int(h), int(m)
+    m = re.search(r"(\d{1,2})\s*[:시]\s*(\d{1,2})?", s) or re.fullmatch(r"(\d{1,2})(\d{2})", s)
+    if not m:
+        raise ValueError(f"시각을 읽을 수 없습니다: {value!r}")
+    h, mi = int(m[1]), int(m[2] or 0)
+    if re.search(r"오후|pm", s, re.I) and h < 12:
+        h += 12
+    elif re.search(r"오전|am", s, re.I) and h == 12:
+        h = 0
+    if not (0 <= h < 24 and 0 <= mi < 60):
+        raise ValueError(f"시각을 읽을 수 없습니다: {value!r}")
+    return h, mi
 
 
 def _read_file(path, loaded):

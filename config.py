@@ -44,7 +44,7 @@ EDU_PLAN_URL = f"{BASE_URL}/usr/my/co/pln/edu_plan_mng_rgst.do"
 
 # 모든 교육과정에 공통 적용되는 값 (보조강사는 파일의 '보조1' 열을 사용)
 PLAN_DEFAULT_VALUES = {
-    "교육정원": "12",
+    "교육정원": "15",
     "교육대상자유형": "고령층",   # <select id="edc_trgter_ty_cd"> 의 표시 텍스트
     "취약계층": True,
     "담당배움터": "임실군",

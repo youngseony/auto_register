@@ -28,7 +28,7 @@ from selenium.common.exceptions import (
 
 import config
 from common.browser import BaseRegistrar, start_registrar
-from common.console import input, issues, log, mask_id, mask_phone
+from common.console import input, input_timeout, issues, log, mask_id, mask_phone
 from common.files import Loaded, clean_row, fmt_date_weekday, read_table, txt as _txt
 from common.report import print_load_summary, print_report
 
@@ -180,6 +180,7 @@ results = []  # {번호, 교육실시ID, 회원ID, 이름, 휴대폰, 결과, �
 def record_result(no, edu_id, student, status, note="", kind=""):
     results.append({
         "번호": no,
+        "일자": (student.get("ref") or {}).get("date", ""),
         "교육실시ID": edu_id,
         "회원ID": student["mem_id"],
         "이름": student["name"],
@@ -200,7 +201,8 @@ def print_kind_summary(invalid):
             shown = r["이름"] or r["회원ID"] or "(이름 없음)"
             if r["이름"] and r["회원ID"]:
                 shown = f"{r['이름']}({r['회원ID']})"
-            groups.setdefault(r["유형"], []).append((r["교육실시ID"], shown, r["비고"]))
+            edu_label = f"{r['일자']} / {r['교육실시ID']}" if r["일자"] else r["교육실시ID"]
+            groups.setdefault(r["유형"], []).append((edu_label, shown, r["비고"]))
     if not groups:
         return
     total = sum(len(v) for v in groups.values())
@@ -215,7 +217,7 @@ def print_kind_summary(invalid):
         print(("" if first else "\n") + f"  ※ {_KIND_HELP[kind]}")
         first = False
         print(f"\n[{kind}] {len(rows)}명")
-        print("     교육실시ID / 이름 / 오류내용")
+        print("     일자 / 교육실시ID / 이름 / 오류내용")
         for edu_id, shown, note in rows:
             print(f"   - {edu_id} / {shown} / {note}")
     print("\n" + "=" * 60)
@@ -494,8 +496,16 @@ class StudentRegistrar(BaseRegistrar):
                 print(f"    {title:<9}: {info[key]}")
         print("  (체크하고 이 창으로 돌아와 Enter를 누르면, '교육생실시관리' 클릭부터 자동으로 진행합니다.)")
         print("-" * 60)
+        wait = getattr(config, "COURSE_SELECT_WAIT_SECONDS", 60)
+        if wait:
+            print(f"  ({wait}초 안에 아무 입력이 없으면 이 교육은 건너뛰고, 다음 교육으로 넘어갑니다. 건너뛴 교육은 마지막에 알려 드립니다)")
         while True:
-            answer = input("  교육을 체크했으면 Enter (이 교육을 건너뛰려면 s + Enter): ").strip().lower()
+            answer = input_timeout("  교육을 체크했으면 Enter (이 교육을 건너뛰려면 s + Enter): ", wait)
+            if answer is None:
+                print(f"\n  ({wait}초 동안 입력이 없어 이 교육({edu_id})은 건너뜁니다)")
+                log.warning(f"  [교육 선택] {edu_id} 교육: {wait}초 동안 입력이 없어 건너뜁니다.")
+                return False
+            answer = answer.strip().lower()
             if answer == "s":
                 return False
             if not self._layer_open():
@@ -983,7 +993,7 @@ def run(loaded):
                 for s in students:  # 교육 팝업을 열지 못했거나 건너뛰었으면 이 교육의 교육생은 모두 미처리로 정리
                     issues.current = key_of(s)
                     log.warning(f"  [교육생실시관리] {edu_id} 교육을 선택하지 않았거나 팝업을 열지 못해 등록하지 못했습니다.")
-                    record_result(s["no"], edu_id, s, "건너뜀", "교육 선택 건너뜀 또는 팝업을 열지 못함", KIND_COURSE)
+                    record_result(s["no"], edu_id, s, "건너뜀", "교육 선택 건너뜀(시간 초과 포함) 또는 팝업을 열지 못함", KIND_COURSE)
                 continue
 
             for s in students:

@@ -142,6 +142,13 @@ def _resolve_issues(key):
     issues.issues[:] = kept
 
 
+def input_timeout(prompt, seconds):
+    """Enter를 seconds초 기다려 입력값을 돌려준다. 시간이 지나면 None (seconds가 0이거나 콘솔이 아니면 끝없이 기다림)."""
+    if not seconds or msvcrt is None:
+        return _builtin_input(prompt)
+    return _input_with_timeout(prompt, seconds)
+
+
 def input(prompt=""):  # noqa: A001 - 수동 개입 요청(">> ...")을 기록·판정하고 제한 시간을 두는 래퍼
     text = str(prompt)
     intervention = ">>" in text  # 자동 처리에 실패해 사용자에게 직접 처리를 요청하는 안내

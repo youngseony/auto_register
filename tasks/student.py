@@ -452,6 +452,7 @@ class StudentRegistrar(BaseRegistrar):
         try:
             self._click(By.CSS_SELECTOR, "button[onclick*='fn_stdnt_mng']", timeout=3)
         except TimeoutException:
+            log.warning("  [교육생실시관리] '교육생실시관리' 버튼을 누르지 못했습니다.")
             return False
         alert = self._alert_text(1.0)
         if alert:
@@ -461,6 +462,7 @@ class StudentRegistrar(BaseRegistrar):
             WebDriverWait(self.driver, config.WAIT_TIME).until(lambda d: self._layer_open())
             return True
         except TimeoutException:
+            log.warning("  [교육생실시관리] 팝업이 제때 열리지 않았습니다.")
             return False
 
     def _open_course_automatically(self, edu_id, first):
@@ -517,7 +519,15 @@ class StudentRegistrar(BaseRegistrar):
         if info is not None:
             self._info = info
         info = self._info
-        opened = self._layer_matches(edu_id) or self._open_course_automatically(edu_id, first)
+        opened = self._layer_matches(edu_id)
+        for attempt in range(3):  # 화면이 잠깐 느려 실패할 수 있으니, 수동 안내 전에 자동으로 최대 3번 시도한다
+            if opened:
+                break
+            if attempt:
+                log.info(f"  [교육생실시관리] 자동으로 다시 시도합니다 ({attempt + 1}/3)")
+                if self._layer_open():
+                    self.close_stdnt_layer()
+            opened = self._open_course_automatically(edu_id, first)
         if not opened:
             if self._layer_open() and not self._layer_matches(edu_id):
                 self.close_stdnt_layer()  # 다른 교육의 팝업이 열려 있으면 닫고 다시 고르게 한다

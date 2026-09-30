@@ -534,7 +534,8 @@ class StudentRegistrar(BaseRegistrar):
         if self.edu_id == edu_id and self._layer_matches(edu_id):
             return True
         self._close_member_popup_if_open()
-        return self.open_stdnt_layer(edu_id, first=False)
+        # 저장 뒤 팝업이 닫히면서 체크도 풀려 있을 수 있으므로, auto 모드에서는 목록에서 교육을 다시 찾아 체크한다.
+        return self.open_stdnt_layer(edu_id, first=True)
 
     # ---- 이미 등록된 교육생 목록 읽기 ---------------------------------
     def _ensure_layer_page_size(self, size=100):

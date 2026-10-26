@@ -47,7 +47,6 @@ PLAN_DEFAULT_VALUES = {
     "교육정원": "15",
     "교육대상자유형": "고령층",   # <select id="edc_trgter_ty_cd"> 의 표시 텍스트
     "취약계층": True,
-    "담당배움터": "임실군",
     "사용기자재": "스마트폰",
 }
 
@@ -65,7 +64,7 @@ COL_SIDO = "시/도"
 COL_SIGUNGU = "시군구"
 COL_DONG = "읍면동"
 COL_ASSISTANT = "보조강사"
-COL_PLACE = "담당 배움터"  # 열이 없거나 비어 있으면 PLAN_DEFAULT_VALUES["담당배움터"]를 사용
+COL_PLACE = "담당 배움터"  # 이 열의 값을 담당 배움터 검색 팝업에서 검색해 선택 (비어 있으면 선택하지 않고 마지막 결과에 포함)
 
 # '보조강사' 열이 없으면, 열 이름에 이 단어가 들어 있는 열(예: 보조1, 보조 강사)을 보조강사 열로 읽음
 COL_ASSISTANT_KEYWORD = "보조"

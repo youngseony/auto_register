@@ -170,7 +170,6 @@ def show_summary(loaded):
 class EduPlanRegistrar(BaseRegistrar):
     def __init__(self):
         super().__init__()
-        self.place_name = config.PLAN_DEFAULT_VALUES["담당배움터"]
 
     # ---- 공통 유틸 -------------------------------------------------
     def _set_text(self, by, sel, value):
@@ -198,7 +197,14 @@ class EduPlanRegistrar(BaseRegistrar):
 
     def _select_by_text(self, by, sel, text, fire_change=True):
         el = self._find(by, sel)
-        Select(el).select_by_visible_text(text)
+        select = Select(el)
+        want = re.sub(r"\s+", "", str(text))
+        # 띄어쓰기만 다른 항목(예: '전주시덕진구' / '전주시 덕진구')은 같은 값으로 보고 선택한다.
+        # 오타 등으로 같은 항목이 없으면 NoSuchElementException -> 호출한 쪽에서 마지막 결과에 포함한다.
+        option = next((o for o in select.options if re.sub(r"\s+", "", o.text) == want), None)
+        if option is None:
+            raise NoSuchElementException(f"선택 항목 없음: {text!r}")
+        select.select_by_index(select.options.index(option))
         if fire_change:
             self.driver.execute_script(
                 "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));", el
@@ -294,7 +300,7 @@ class EduPlanRegistrar(BaseRegistrar):
 
     def select_place(self, place_name):
         """
-        담당 배움터 검색 팝업(plcPop): 배움터명 입력 -> '검색하기' -> 결과에서 배움터명이 정확히 같은 행의 '선택'.
+        담당 배움터 검색 팝업(plcPop): 배움터명 입력 -> '검색하기' -> 결과에서 배움터명이 같은 행(띄어쓰기 무시)의 '선택'.
         (실제 팝업 HTML 확인: #sch_edc_place_nm 입력, id='mainTbody' 결과, onclick="choosePlc(...)")
         정확히 일치하는 행이 없으면 결과가 1건일 때만 그 행을 선택한다.
         """
@@ -304,27 +310,39 @@ class EduPlanRegistrar(BaseRegistrar):
             popup = self._wait_popup_open("plcPop")
             time.sleep(0.3)
             inp = popup.find_element(By.ID, "sch_edc_place_nm")
-            inp.clear()
-            inp.send_keys(place_name)
-            for b in popup.find_elements(By.TAG_NAME, "button"):
-                if "검색하기" in b.text:
-                    self._js_click(b)
-                    break
-            time.sleep(1.2)
+            want = re.sub(r"\s+", "", place_name)
+            # 띄어쓰기 오류에 대비해 검색어를 바꿔 가며 찾는다: 입력값 -> 공백 제거 -> 마지막 낱말(예: '덕진구')
+            terms = [place_name, want]
+            parts = place_name.split()
+            if len(parts) > 1:
+                terms.append(parts[-1])
+            terms = list(dict.fromkeys(t for t in terms if t))
 
-            rows = popup.find_element(By.ID, "mainTbody").find_elements(By.TAG_NAME, "tr")
-            candidates = [
-                (r, r.find_elements(By.CSS_SELECTOR, "button[onclick*='choosePlc']")) for r in rows
-            ]
-            candidates = [(r, b[0]) for r, b in candidates if b]
-            target = None
-            for r, b in candidates:
-                names = [td.text.strip() for td in r.find_elements(By.CSS_SELECTOR, "td.title")]
-                if place_name in names:
-                    target = b
+            target, candidates = None, []
+            for n, term in enumerate(terms):
+                inp.clear()
+                inp.send_keys(term)
+                for btn in popup.find_elements(By.TAG_NAME, "button"):
+                    if "검색하기" in btn.text:
+                        self._js_click(btn)
+                        break
+                time.sleep(1.2)
+
+                rows = popup.find_element(By.ID, "mainTbody").find_elements(By.TAG_NAME, "tr")
+                candidates = [
+                    (r, r.find_elements(By.CSS_SELECTOR, "button[onclick*='choosePlc']")) for r in rows
+                ]
+                candidates = [(r, b[0]) for r, b in candidates if b]
+                for r, b in candidates:  # 띄어쓰기를 무시하고 이름이 같은 행을 찾는다
+                    names = [re.sub(r"\s+", "", td.text) for td in r.find_elements(By.CSS_SELECTOR, "td.title")]
+                    if want in names:
+                        target = b
+                        break
+                # 결과가 1건뿐이면 그 행을 선택 (마지막 낱말 검색은 범위가 넓어 제외)
+                if target is None and len(candidates) == 1 and n < 2:
+                    target = candidates[0][1]
+                if target is not None:
                     break
-            if target is None and len(candidates) == 1:
-                target = candidates[0][1]
             if target is not None:
                 self._js_click(target)
                 time.sleep(0.6)
@@ -634,21 +652,12 @@ class EduPlanRegistrar(BaseRegistrar):
         sigungu = str(row[config.COL_SIGUNGU]).strip()
         dong = str(row[config.COL_DONG]).strip()
         assistant = _txt(row.get(config.COL_ASSISTANT))
-        # '담당 배움터' 결정:
-        # 1순위: 파일의 '담당 배움터' 열
-        # 2순위: 전주시의 경우 시군구 열 값 (예: "전주시 완산구", "전주시 덕진구")
-        # 3순위: config 기본값
-        explicit_place = next(
+        # '담당 배움터'는 파일의 '담당 배움터' 열(공백 유무 무관) 값을 팝업에서 검색해 선택한다.
+        place = next(
             (str(v).strip() for k, v in row.items()
              if k.replace(" ", "") == config.COL_PLACE.replace(" ", "") and v not in (None, "")),
-            None,
+            "",
         )
-        if explicit_place:
-            place = explicit_place
-        elif sigungu and ("전주" in sigungu or "덕진" in sigungu or "완산" in sigungu):
-            place = sigungu
-        else:
-            place = self.place_name
 
         self.driver.get(config.EDU_PLAN_URL)
         time.sleep(config.DELAY_BETWEEN_ACTIONS)
@@ -683,7 +692,10 @@ class EduPlanRegistrar(BaseRegistrar):
         self._set_value_js(By.ID, "edc_end_dt", date_str)
 
         # 5) 담당 배움터
-        self.select_place(place)
+        if place:
+            self.select_place(place)
+        else:
+            log.warning(f"  [담당 배움터] '{config.COL_PLACE}' 열이 비어 있어 선택하지 못했습니다. 직접 선택하세요.")
 
         # 6) 실제 교육장 - 직접입력 + 상세주소 + 시/도/시군구/읍면동
         try:

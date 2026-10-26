@@ -57,7 +57,7 @@ def normalize_time(value) -> str:
         minutes = round(value * 24 * 60)
         return minutes // 60, minutes % 60
     s = str(value).strip()
-    m = re.search(r"(\d{1,2})\s*[:시]\s*(\d{1,2})?", s) or re.fullmatch(r"(\d{1,2})(\d{2})", s)
+    m = re.search(r"(\d{1,2})\s*[:.시]\s*(\d{1,2})?", s) or re.fullmatch(r"(\d{1,2})(\d{2})", s)
     if not m:
         raise ValueError(f"시각을 읽을 수 없습니다: {value!r}")
     h, mi = int(m[1]), int(m[2] or 0)
@@ -248,7 +248,8 @@ class EduPlanRegistrar(BaseRegistrar):
             time.sleep(0.3)
             inp = popup.find_element(By.ID, "sch_edc_crse_nm")
             inp.clear()
-            inp.send_keys(course_name)
+            # 검색어는 ':' 앞부분만 사용 (예: '2026 AI 처음 배우기'), 줄 선택은 전체 과정명으로
+            inp.send_keys(re.split(r"[:：]", course_name)[0].strip())
 
             search_btn = None
             for b in popup.find_elements(By.TAG_NAME, "button"):
@@ -262,9 +263,16 @@ class EduPlanRegistrar(BaseRegistrar):
                     self.driver.execute_script("arguments[0].click();", search_btn)
             time.sleep(1.2)
 
+            # 검색 결과(선택 버튼이 있는 줄)가 나타날 때까지 대기
+            try:
+                WebDriverWait(self.driver, config.WAIT_TIME).until(
+                    lambda d: d.find_elements(By.CSS_SELECTOR, "#mainTbody button[onclick*='chooseCrse']")
+                )
+            except TimeoutException:
+                log.warning(f"  [{label}] 검색 결과 줄이 나타나지 않았습니다: {course_name}")
             tbody = popup.find_element(By.ID, "mainTbody")
             rows = tbody.find_elements(By.TAG_NAME, "tr")
-            target_btn = self._pick_row_button(rows, course_name, "chooseCrse")
+            target_btn = self._pick_row_button(rows, course_name, "chooseCrse", fallback_first=False)
             if target_btn:
                 self._js_click(target_btn)
                 time.sleep(0.6)
@@ -272,6 +280,9 @@ class EduPlanRegistrar(BaseRegistrar):
                 if self._find(By.ID, "edc_crse_nm").get_attribute("value"):
                     log.info(f"  [{label}] 자동 선택 완료: {course_name}")
                     return True
+                log.warning(f"  [{label}] 선택 후 과정명 칸이 비어 있습니다")
+            else:
+                log.warning(f"  [{label}] 결과 {len(rows)}줄 중 선택 버튼을 찾지 못했습니다")
         except (NoSuchElementException, TimeoutException) as e:
             log.warning(f"  [{label}] 자동 검색 실패: {e}")
 
@@ -336,13 +347,18 @@ class EduPlanRegistrar(BaseRegistrar):
         """
         보조강사/가이드 검색 팝업(sptsPop): 이름 입력(#sch_tcr_nm) -> '검색하기' -> 이름이 정확히 같은 행의 '선택'.
         팝업의 배움터 칸(#sch_edc_place_nm)은 앞서 선택한 담당 배움터가 자동 입력되어
-        해당 배움터에 등록된 보조강사만 조회된다. 동명이인 등 2건 이상이면 임의로 고르지 않는다.
+        '관리지역 내 모든 보조강사/가이드 검색'에 체크한 뒤 검색한다. 동명이인 등 2건 이상이면 임의로 고르지 않는다.
+        찾지 못하면 직접 처리를 기다리지 않고 경고만 남긴 채 다음 절차로 넘어간다.
         """
         label = "보조강사/가이드명"
         self._click(By.ID, "sptsPopBtn")
         try:
             popup = self._wait_popup_open("sptsPop")
             time.sleep(0.3)
+            # '관리지역 내 모든 보조강사/가이드 검색'에 체크해 담당 배움터 밖의 보조강사도 검색
+            area_chk = popup.find_element(By.ID, "sch_mng_area_yn")
+            if not area_chk.is_selected():
+                self._js_click(area_chk)
             inp = popup.find_element(By.ID, "sch_tcr_nm")
             inp.clear()
             inp.send_keys(name)
@@ -367,16 +383,17 @@ class EduPlanRegistrar(BaseRegistrar):
                     log.info(f"  [{label}] 자동 선택 완료: {name}")
                     return True
             elif len(matches) == 0:
-                log.warning(f"  [{label}] '{name}' 이(가) 담당 배움터의 보조강사 목록에 없습니다.")
+                log.warning(f"  [{label}] '{name}' 을(를) 관리지역 내 보조강사 목록에서 찾지 못했습니다.")
             else:
                 log.warning(f"  [{label}] '{name}' 과(와) 이름이 같은 보조강사가 {len(matches)}명이라 자동 선택하지 않았습니다.")
         except (NoSuchElementException, TimeoutException) as e:
             log.warning(f"  [{label}] 자동 검색 실패: {e}")
 
-        input(
-            f"\n  >> [{label}] 자동 선택 실패. 브라우저에서 '{name}' 를 직접 찾아 선택한 뒤 "
-            f"Enter를 눌러주세요..."
-        )
+        # 검색이 안 되면 멈추지 않고 팝업을 닫은 뒤 다음 절차로 넘어간다. (위 경고가 마지막 결과 정리에 모인다)
+        try:
+            self._close_popup_if_open("sptsPop")
+        except Exception:
+            pass
         return False
 
     def search_list_and_pick(self, open_by, open_sel, popup_class, keyword, label, verify_field_id=None):
@@ -446,13 +463,15 @@ class EduPlanRegistrar(BaseRegistrar):
         )
         return False
 
-    def _pick_row_button(self, rows, keyword, choose_js_prefix):
+    def _pick_row_button(self, rows, keyword, choose_js_prefix, fallback_first=True):
+        # 띄어쓰기 차이(예: '첫걸음 [요약형]' / '첫걸음[요약형]')는 무시하고 비교
+        want = re.sub(r"\s+", "", keyword)
         for row in rows:
-            if keyword in row.text:
+            if want in re.sub(r"\s+", "", row.text):
                 btns = row.find_elements(By.CSS_SELECTOR, f"button[onclick*='{choose_js_prefix}']")
                 if btns:
                     return btns[0]
-        if rows:
+        if fallback_first and rows:
             btns = rows[0].find_elements(By.CSS_SELECTOR, f"button[onclick*='{choose_js_prefix}']")
             if btns:
                 return btns[0]
@@ -615,12 +634,21 @@ class EduPlanRegistrar(BaseRegistrar):
         sigungu = str(row[config.COL_SIGUNGU]).strip()
         dong = str(row[config.COL_DONG]).strip()
         assistant = _txt(row.get(config.COL_ASSISTANT))
-        # '담당 배움터' 열(공백 유무 무관)이 있으면 그 값을, 없거나 비어 있으면 config 기본값을 사용
-        place = next(
+        # '담당 배움터' 결정:
+        # 1순위: 파일의 '담당 배움터' 열
+        # 2순위: 전주시의 경우 시군구 열 값 (예: "전주시 완산구", "전주시 덕진구")
+        # 3순위: config 기본값
+        explicit_place = next(
             (str(v).strip() for k, v in row.items()
              if k.replace(" ", "") == config.COL_PLACE.replace(" ", "") and v not in (None, "")),
-            self.place_name,
+            None,
         )
+        if explicit_place:
+            place = explicit_place
+        elif sigungu and ("전주" in sigungu or "덕진" in sigungu or "완산" in sigungu):
+            place = sigungu
+        else:
+            place = self.place_name
 
         self.driver.get(config.EDU_PLAN_URL)
         time.sleep(config.DELAY_BETWEEN_ACTIONS)
@@ -667,9 +695,17 @@ class EduPlanRegistrar(BaseRegistrar):
 
         try:
             self._select_by_text(By.ID, "real_area_cd", sido)
-            time.sleep(0.8)  # 하위 select(시군구) 옵션 로드 대기
+            # 하위 select(시군구) 옵션이 채워질 때까지 동적 대기
+            WebDriverWait(self.driver, config.WAIT_TIME).until(
+                lambda d: len(Select(d.find_element(By.ID, "real_signgu_cd")).options) > 1
+            )
+            time.sleep(0.3)
             self._select_by_text(By.ID, "real_signgu_cd", sigungu)
-            time.sleep(0.8)  # 하위 select(읍면동) 옵션 로드 대기
+            # 하위 select(읍면동) 옵션이 채워질 때까지 동적 대기
+            WebDriverWait(self.driver, config.WAIT_TIME).until(
+                lambda d: len(Select(d.find_element(By.ID, "real_dong_cd")).options) > 1
+            )
+            time.sleep(0.3)
             self._select_by_text(By.ID, "real_dong_cd", dong)
         except (TimeoutException, NoSuchElementException) as e:
             log.warning(f"  시/도-시군구-읍면동 선택 중 문제 발생: {e}")

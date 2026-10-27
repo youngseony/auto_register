@@ -20,7 +20,8 @@ import sys
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchWindowException
 
 import config
-from common.console import input, log, setup_logging
+from common.browser import close_browsers, stop_drivers
+from common.console import input, issues, log, setup_logging
 from common.files import choose_input_files
 
 # 메뉴 번호 -> (작업 이름 표시, 작업 모듈, 명령줄에서 쓸 이름)
@@ -34,9 +35,10 @@ _NO = ("n", "no", "q", "x", "ㅜ", "ㅂ", "ㅌ")
 _OTHER_FILE = ("f", "ㄹ")
 
 
-def choose_task():
-    """메뉴에서 작업을 고른다. (명령줄에 1/2/plan/student 를 주면 메뉴를 건너뛴다)"""
-    if len(sys.argv) > 1:
+def choose_task(again=False):
+    """메뉴에서 작업을 고른다. (명령줄에 1/2/plan/student 를 주면 메뉴를 건너뛴다)
+    again=True 는 작업이 오류 없이 끝난 뒤 '다음 작업'을 묻는 경우"""
+    if len(sys.argv) > 1 and not again:
         wanted = sys.argv[1].strip().lower()
         for number, (_, module, short) in TASKS.items():
             if wanted in (number, short):
@@ -44,9 +46,10 @@ def choose_task():
         raise SystemExit(f"알 수 없는 작업입니다: {sys.argv[1]}  (1 또는 plan = 교육계획 등록, 2 또는 student = 교육생 등록)")
 
     print("\n" + "=" * 60)
-    print(" AI디지털배움터 등록 업무 자동화")
+    print(" 다음에 무엇을 할까요?" if again else " AI디지털배움터 등록 업무 자동화")
     print("=" * 60)
-    print(" 어떤 작업을 진행할까요?")
+    if not again:
+        print(" 어떤 작업을 진행할까요?")
     for number, (label, _, _) in TASKS.items():
         print(f"   {number}. {label}")
     print("   q. 종료")
@@ -102,9 +105,21 @@ def confirm_and_load(task):
 def main():
     setup_logging()
     task = choose_task()
-    print(f"\n[{task.TITLE}]")
-    loaded = confirm_and_load(task)
-    task.run(loaded)
+    try:
+        while True:
+            print(f"\n[{task.TITLE}]")
+            loaded = confirm_and_load(task)
+            clean = task.run(loaded)
+            # 명령줄로 작업을 정했거나 오류/수동 확인 항목이 있었으면 여기서 끝낸다. (오류부터 확인·수정해야 하므로)
+            if not clean or len(sys.argv) > 1:
+                return
+            close_browsers()  # 다음 작업은 크롬을 새로 열고 로그인부터 다시 한다
+            issues.issues.clear()
+            issues.current = None
+            getattr(task, "results", []).clear()
+            task = choose_task(again=True)
+    finally:
+        stop_drivers()
 
 
 if __name__ == "__main__":

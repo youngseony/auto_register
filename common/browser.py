@@ -105,10 +105,33 @@ class BaseRegistrar:
             return False
 
 
+_started = []  # 이번 실행에서 띄운 등록 담당 객체들
+
+
+def close_browsers():
+    """다음 작업으로 넘어가기 전에, 앞 작업에서 띄운 크롬을 닫는다."""
+    while _started:
+        try:
+            _started.pop().driver.quit()
+        except Exception:
+            pass
+
+
+def stop_drivers():
+    """프로그램을 끝낼 때 chromedriver 만 멈춘다. (크롬 창은 그대로 둔다. 남은 chromedriver 가 콘솔 입력을 붙잡지 않게 함)"""
+    for registrar in _started:
+        try:
+            registrar.driver.service.stop()
+        except Exception:
+            pass
+
+
 def start_registrar(cls):
     """크롬을 띄워 등록 담당 객체(cls)를 만든다. 크롬을 시작하지 못하면 안내 후 종료."""
     try:
-        return cls()
+        registrar = cls()
+        _started.append(registrar)
+        return registrar
     except Exception as e:
         first_line = (str(e).strip().splitlines() or [""])[0]
         raise SystemExit(

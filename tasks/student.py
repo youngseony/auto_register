@@ -1030,10 +1030,11 @@ def run(loaded):
         print("\n사용자가 중단했습니다. 지금까지의 결과를 정리합니다.")
 
     log.info(f"\n===== 완료: {done}명 등록 / 총 {len(targets)}명 대상 =====")
-    print_report(
+    no_issues = print_report(
         total=len(targets), done=done, unit="명",
         group_title="수동으로 확인/처리가 필요한 교육생",
         key_names=("번호", "교육실시ID", "회원"),
         results=results,
     )
     print_kind_summary(loaded.invalid)
+    return no_issues and not stop and done == len(targets)  # 오류 없이 모두 끝났을 때만 True

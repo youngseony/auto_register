@@ -812,6 +812,7 @@ def run(loaded):
     registrar.login_and_wait()
 
     done, failed = 0, []
+    stopped = False
     try:
         for i, row in enumerate(targets, 1):
             course = str(row[config.COL_COURSE]).strip()
@@ -827,9 +828,11 @@ def run(loaded):
                 failed.append((course, date_str, str(e)))
                 cont = input("  오류가 발생했습니다. 다음 행으로 계속할까요? (Enter=계속, x=중단): ").strip().lower()
                 if cont == "x":
+                    stopped = True
                     break
             time.sleep(config.DELAY_BETWEEN_ACTIONS)
     except KeyboardInterrupt:
+        stopped = True
         print("\n사용자가 중단했습니다. 지금까지의 결과를 정리합니다.")
 
     log.info(f"\n===== 완료: {done}건 등록 / 총 {len(targets)}건 대상 =====")
@@ -838,8 +841,9 @@ def run(loaded):
         for c, d, e in failed:
             log.info(f"  - {c} / {d} : {e}")
 
-    print_report(
+    no_issues = print_report(
         total=len(targets), done=done, unit="건",
         group_title="수동으로 수정이 필요한 교육과정",
         key_names=("번호", "과정명", "일자"),
     )
+    return no_issues and not failed and not stopped and done == len(targets)  # 오류 없이 모두 끝났을 때만 True

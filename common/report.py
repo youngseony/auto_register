@@ -51,7 +51,8 @@ def print_load_summary(title, unit, loaded, detail_lines, note_lines=()):
 def print_report(*, total, done, unit, group_title, key_names, results=None):
     """모든 등록이 끝난 뒤, 결과 요약과 문제가 있었던 항목만 모아 출력하고 CSV로 저장한다.
     unit: '건'/'명' / group_title: '수동으로 수정이 필요한 교육과정' 등 / key_names: 항목 키 이름 3개(번호, 항목1, 항목2)
-    results: (교육생 등록처럼) 전체 처리 결과를 파일로도 남길 때의 dict 목록"""
+    results: (교육생 등록처럼) 전체 처리 결과를 파일로도 남길 때의 dict 목록
+    반환: 수동 확인이 필요한 항목이 하나도 없으면 True"""
     issues.current = None
     stamp = f"{datetime.now():%Y%m%d_%H%M%S}"
     print("\n" + "=" * 60)
@@ -72,7 +73,7 @@ def print_report(*, total, done, unit, group_title, key_names, results=None):
     if not issues.issues:
         print("오류/수동 확인이 필요한 항목이 없습니다.")
         print("=" * 60)
-        return
+        return True
 
     grouped = {}
     seen = set()
@@ -99,3 +100,4 @@ def print_report(*, total, done, unit, group_title, key_names, results=None):
     print("-" * 60)
     print(f"위 내용은 파일로도 저장했습니다: {out_path}")
     print("=" * 60)
+    return False
